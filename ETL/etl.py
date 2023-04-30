@@ -46,7 +46,7 @@ def fetch_data(url, start_date):
     try:
         boc_resp = requests.get(url+start_date)
     except Exception as e:
-        raise MyException("Couldn't read data from url : ", e)
+        raise MyException(f"Couldn't read data from url : {e}")
 
     if (boc_resp.status_code == 200):
         boc_raw = json.loads(boc_resp.text)
@@ -67,13 +67,56 @@ def process_data(raw_data):
         date.append(datetime.datetime.strptime(row['d'], '%Y-%m-%d'))
         rate.append(decimal.Decimal(row['FXUSDCAD']['v']))
 
-    return [rate, date]
+    exchange_rate = petl.fromcolumns([date, rate], header=['date', 'rate'])
+
+    return exchange_rate
+
+
+def read_data_file(file_path):
+    """read the Finances file in xlsx format
+        return the petl table of dates and rates (USD)
+    """
+    try:
+        expenses = petl.io.xlsx.fromxlsx(file_path)
+    except Exception as e:
+        raise (f"Couldn't open the file: {e}")
+
+    return expenses
+
+
+def populate_database(dest_server, db_name, data, table):
+    try:
+        db_connection = pymssql.connect(
+            server=dest_server, database=db_name)
+    except Exception as e:
+        raise MyException(f"Couldn't make connection with database {e}")
+
+    try:
+        petl.io.todb(data, db_connection, table)
+    except Exception as e:
+        raise MyException(f"Couldn't populate datbase {e}")
 
 
 def main():
     start_date, url, dest_server, dest_db = read_configuration('project.ini')
     raw_data = fetch_data(url, start_date)
-    rate_date = process_data(raw_data)
+    exhchange_rate = process_data(raw_data)
+    expenses = read_data_file('data/Expenses.xlsx')
+
+    # join the tables
+    expenses = petl.outerjoin(exhchange_rate, expenses, key='date')
+
+    # fill the missing values in null column
+    expenses = petl.filldown(expenses, 'rate')
+
+    # drop dates with no expenses
+    expenses = petl.select(expenses, lambda rec: rec.USD != None)
+
+    # add Canadian dollar exchange column
+    expenses = petl.addfield(
+        expenses, 'CAD', lambda rec: decimal.Decimal(rec.USD) * rec.rate)
+
+    populate_database(dest_server, dest_db, expenses, 'expenses')
 
 
 if __name__ == '__main__':
