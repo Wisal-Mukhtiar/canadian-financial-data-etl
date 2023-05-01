@@ -1,5 +1,5 @@
 
-# Bank of Canada ETL Pipeline
+# USD to CAD expense conversion ETL pipeline
 
 ### Overview
 This project is an ETL (extract, transform, load) pipeline for extracting data from the Bank of Canada's Valet API, performing necessary transformations, and loading the data into a MySQL database. It uses the petl Python module for processing the data.
